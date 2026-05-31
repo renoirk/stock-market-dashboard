@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StockView - 실시간 주식 시장 현황</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="nav-inner">
+      <div class="nav-logo">
+        <span class="logo-icon">📈</span>
+        <span class="logo-text">StockView</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="#" class="active">시장 현황</a></li>
+        <li><a href="#">국내 주식</a></li>
+        <li><a href="#">해외 주식</a></li>
+        <li><a href="#">뉴스</a></li>
+      </ul>
+      <div class="nav-right">
+        <span id="clock" class="clock">--:--:--</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-title">
+        <h1>실시간 글로벌 주식 시장</h1>
+        <p id="today-date" class="hero-sub"></p>
+      </div>
+      <div class="hero-meta">
+        <div id="conn-badge" class="badge badge-connecting">
+          <span class="badge-dot"></span>
+          <span id="conn-label">연결 중...</span>
+        </div>
+        <p id="last-update" class="last-update"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN CHARTS -->
+  <main class="main-grid">
+
+    <!-- KOSPI CARD -->
+    <div class="stock-card" id="card-kospi">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div>
+            <span class="index-name">KOSPI</span>
+            <span class="index-sub">한국 종합주가지수</span>
+          </div>
+          <div class="badges-row">
+            <span class="live-badge">● LIVE</span>
+            <span id="kospi-market-state" class="state-badge">--</span>
+          </div>
+        </div>
+        <div class="price-row">
+          <span id="kospi-price" class="price">--</span>
+          <div class="change-col">
+            <span id="kospi-change" class="change-abs">--</span>
+            <span id="kospi-pct" class="change-pct">--</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <div id="kospi-loading" class="chart-loading">
+          <div class="spinner"></div>
+          <span>데이터를 불러오는 중...</span>
+        </div>
+        <canvas id="kospi-chart"></canvas>
+      </div>
+      <div class="stats-row">
+        <div class="stat"><span class="stat-label">시가</span><span id="kospi-open" class="stat-val">--</span></div>
+        <div class="stat"><span class="stat-label">고가</span><span id="kospi-high" class="stat-val positive">--</span></div>
+        <div class="stat"><span class="stat-label">저가</span><span id="kospi-low" class="stat-val negative">--</span></div>
+        <div class="stat"><span class="stat-label">전일종가</span><span id="kospi-prev" class="stat-val">--</span></div>
+      </div>
+    </div>
+
+    <!-- S&P 500 CARD -->
+    <div class="stock-card" id="card-sp500">
+      <div class="card-header">
+        <div class="card-title-row">
+          <div>
+            <span class="index-name">S&amp;P 500</span>
+            <span class="index-sub">미국 대형주 500 지수</span>
+          </div>
+          <div class="badges-row">
+            <span class="live-badge">● LIVE</span>
+            <span id="sp500-market-state" class="state-badge">--</span>
+          </div>
+        </div>
+        <div class="price-row">
+          <span id="sp500-price" class="price">--</span>
+          <div class="change-col">
+            <span id="sp500-change" class="change-abs">--</span>
+            <span id="sp500-pct" class="change-pct">--</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <div id="sp500-loading" class="chart-loading">
+          <div class="spinner"></div>
+          <span>데이터를 불러오는 중...</span>
+        </div>
+        <canvas id="sp500-chart"></canvas>
+      </div>
+      <div class="stats-row">
+        <div class="stat"><span class="stat-label">시가</span><span id="sp500-open" class="stat-val">--</span></div>
+        <div class="stat"><span class="stat-label">고가</span><span id="sp500-high" class="stat-val positive">--</span></div>
+        <div class="stat"><span class="stat-label">저가</span><span id="sp500-low" class="stat-val negative">--</span></div>
+        <div class="stat"><span class="stat-label">전일종가</span><span id="sp500-prev" class="stat-val">--</span></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MINI INDEX STRIP -->
+  <section class="mini-strip">
+    <div class="strip-inner">
+      <div class="mini-card" id="mini-nasdaq">
+        <span class="mini-name">NASDAQ</span>
+        <span class="mini-price" id="nasdaq-price">--</span>
+        <span class="mini-change" id="nasdaq-change">--</span>
+      </div>
+      <div class="mini-card" id="mini-kosdaq">
+        <span class="mini-name">KOSDAQ</span>
+        <span class="mini-price" id="kosdaq-price">--</span>
+        <span class="mini-change" id="kosdaq-change">--</span>
+      </div>
+      <div class="mini-card" id="mini-nikkei">
+        <span class="mini-name">닛케이225</span>
+        <span class="mini-price" id="nikkei-price">--</span>
+        <span class="mini-change" id="nikkei-change">--</span>
+      </div>
+      <div class="mini-card" id="mini-hsi">
+        <span class="mini-name">항셍지수</span>
+        <span class="mini-price" id="hsi-price">--</span>
+        <span class="mini-change" id="hsi-change">--</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MARKET HOURS -->
+  <section class="hours-section">
+    <div class="hours-inner">
+      <h2 class="section-title">시장 운영시간 (한국시간 기준)</h2>
+      <div class="hours-grid">
+        <div class="hours-card">
+          <div class="hours-flag">🇰🇷</div>
+          <div class="hours-info">
+            <strong>한국 (KRX)</strong>
+            <span>09:00 – 15:30</span>
+            <span class="hours-note">월~금 (KST)</span>
+          </div>
+        </div>
+        <div class="hours-card">
+          <div class="hours-flag">🇺🇸</div>
+          <div class="hours-info">
+            <strong>미국 (NYSE/NASDAQ)</strong>
+            <span>23:30 – 익일 06:00</span>
+            <span class="hours-note">월~금 (KST 기준)</span>
+          </div>
+        </div>
+        <div class="hours-card">
+          <div class="hours-flag">🇯🇵</div>
+          <div class="hours-info">
+            <strong>일본 (TSE)</strong>
+            <span>09:00 – 15:30</span>
+            <span class="hours-note">월~금 (JST = KST)</span>
+          </div>
+        </div>
+        <div class="hours-card">
+          <div class="hours-flag">🇭🇰</div>
+          <div class="hours-info">
+            <strong>홍콩 (HKEX)</strong>
+            <span>10:00 – 17:00</span>
+            <span class="hours-note">월~금 (HKT, KST-1)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>데이터 출처: Yahoo Finance | 실제 시장 데이터와 최대 15분 지연될 수 있습니다.</p>
+    <p>본 사이트는 투자 권유가 아닌 정보 제공을 목적으로 합니다.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
