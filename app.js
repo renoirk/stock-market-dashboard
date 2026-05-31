@@ -1,16 +1,21 @@
 /* ==============================================
    StockView - Real-time Market Data
-   Yahoo Finance via CORS proxy
+   Yahoo Finance v8 (server.py 로컬 프록시 사용)
 ============================================== */
 
 const CFG = {
-  updateMs:  2000,            // 2-second refresh
-  chartMs:   5 * 60 * 1000,  // full chart reload every 5 min
+  mainUpdateMs: 2000,            // 주요 지수 갱신 (2초)
+  miniUpdateMs: 30000,           // 보조 지수 갱신 (30초)
+  chartMs:      5 * 60 * 1000,  // 차트 전체 재로드 (5분)
+
+  // 1순위: 로컬 프록시(server.py), 2순위: 직접, 3순위: 외부 프록시
   proxies: [
+    (u) => u.replace('https://query1.finance.yahoo.com', '/api'),
     (u) => u,
     (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
     (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
   ],
+
   symbols: {
     KOSPI:  '^KS11',
     SP500:  '^GSPC',
@@ -19,43 +24,37 @@ const CFG = {
     NIKKEI: '^N225',
     HSI:    '^HSI',
   },
-  colors: {
-    KOSPI: '#818cf8',
-    SP500: '#22d3ee',
-  },
+  colors: { KOSPI: '#818cf8', SP500: '#22d3ee' },
 };
 
-const state = {
-  charts:      {},
-  updateTimer: null,
-  usingDemo:   false,
-};
+const state = { charts: {}, usingDemo: false };
 
 /* ──────────────────────────────────────────
-   API LAYER
+   API LAYER  (v8 chart 전용 — v7 quote 사용 안 함)
 ────────────────────────────────────────── */
 async function apiFetch(url) {
   for (const proxy of CFG.proxies) {
     try {
-      const res = await fetch(proxy(url), { signal: AbortSignal.timeout(6000) });
+      const res = await fetch(proxy(url), { signal: AbortSignal.timeout(8000) });
       if (!res.ok) continue;
       const json = await res.json();
+      if (json?.chart?.error || json?.finance?.error) continue;
       return json;
-    } catch { /* try next proxy */ }
+    } catch { /* 다음 프록시 시도 */ }
   }
   return null;
 }
 
-async function fetchChart(symbol) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=5m&range=1d&includePrePost=false`;
+// v8 chart 엔드포인트로 당일 5분봉 + 메타데이터 획득
+async function fetchChart(symbol, interval = '5m', range = '1d') {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}&includePrePost=false`;
   const data = await apiFetch(url);
   if (!data?.chart?.result?.[0]) return null;
 
   const r      = data.chart.result[0];
   const meta   = r.meta;
   const ts     = r.timestamp || [];
-  const quotes = r.indicators?.quote?.[0] || {};
-  const closes = quotes.close || [];
+  const closes = r.indicators?.quote?.[0]?.close || [];
 
   const points = ts
     .map((t, i) => ({ x: t * 1000, y: closes[i] }))
@@ -64,12 +63,33 @@ async function fetchChart(symbol) {
   return { meta, points };
 }
 
-async function fetchQuotes(symbols) {
-  const joined = symbols.map(s => encodeURIComponent(s)).join('%2C');
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
+// 현재가만 빠르게 가져오기 (1분봉)
+async function fetchLiveQuote(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1m&range=1d&includePrePost=false`;
   const data = await apiFetch(url);
-  if (!data?.quoteResponse?.result) return null;
-  return data.quoteResponse.result;
+  if (!data?.chart?.result?.[0]) return null;
+  const m    = data.chart.result[0].meta;
+  const prev = m.chartPreviousClose ?? m.previousClose ?? 0;
+  return {
+    symbol,
+    regularMarketPrice:         m.regularMarketPrice,
+    regularMarketChange:        prev ? m.regularMarketPrice - prev : 0,
+    regularMarketChangePercent: prev ? ((m.regularMarketPrice - prev) / prev) * 100 : 0,
+    regularMarketOpen:          m.regularMarketOpen,
+    regularMarketDayHigh:       m.regularMarketDayHigh,
+    regularMarketDayLow:        m.regularMarketDayLow,
+    regularMarketPreviousClose: prev,
+    regularMarketTime:          m.regularMarketTime,
+    marketState:                m.marketState,
+  };
+}
+
+// 여러 종목 병렬 조회
+async function fetchQuotes(symbols) {
+  const results = await Promise.allSettled(symbols.map(fetchLiveQuote));
+  return results
+    .filter(r => r.status === 'fulfilled' && r.value)
+    .map(r => r.value);
 }
 
 /* ──────────────────────────────────────────
@@ -78,10 +98,8 @@ async function fetchQuotes(symbols) {
 function makeDemoPoints(base, hours = 6.5) {
   const points = [];
   const now    = Date.now();
-  const open   = now - hours * 3600 * 1000;
   let   price  = base * (0.98 + Math.random() * 0.02);
-
-  for (let t = open; t <= now; t += 5 * 60 * 1000) {
+  for (let t = now - hours * 3600000; t <= now; t += 300000) {
     price += price * (Math.random() - 0.495) * 0.003;
     points.push({ x: t, y: parseFloat(price.toFixed(2)) });
   }
@@ -113,15 +131,13 @@ function buildGradient(ctx, canvas, hex) {
 function createChart(canvasId, color) {
   const canvas = document.getElementById(canvasId);
   const ctx    = canvas.getContext('2d');
-  const grad   = buildGradient(ctx, canvas, color);
-
   return new Chart(ctx, {
     type: 'line',
     data: {
       datasets: [{
         data: [],
         borderColor: color,
-        backgroundColor: grad,
+        backgroundColor: buildGradient(ctx, canvas, color),
         borderWidth: 2,
         pointRadius: 0,
         pointHoverRadius: 4,
@@ -149,11 +165,7 @@ function createChart(canvasId, color) {
         y: {
           position: 'right',
           grid:  { color: '#ffffff08' },
-          ticks: {
-            color: '#7a8fa8',
-            font:  { size: 11 },
-            callback: (v) => v.toLocaleString(),
-          },
+          ticks: { color: '#7a8fa8', font: { size: 11 }, callback: (v) => v.toLocaleString() },
         },
       },
       plugins: {
@@ -185,7 +197,7 @@ function appendPoint(chart, x, y) {
     data[data.length - 1].y = y;
   } else {
     data.push({ x, y });
-    if (data.length > 300) data.shift();
+    if (data.length > 400) data.shift();
   }
   chart.update('none');
 }
@@ -216,26 +228,24 @@ function fmtChange(abs, pct) {
 }
 
 function stateLabel(s) {
-  return { REGULAR: '장 진행중', PRE: '프리마켓', POST: '애프터마켓', CLOSED: '장 마감' }[s] ?? s ?? '--';
+  return { REGULAR: '장 진행중', PRE: '프리마켓', POST: '애프터마켓', CLOSED: '장 마감' }[s] ?? '--';
 }
 
-function updateMainCard(id, price, chg, pct, open, high, low, prev, marketState) {
+function updateMainCard(id, q) {
   const pfx = id.toLowerCase();
-  const { absStr, pctStr, cls } = fmtChange(chg, pct);
+  const { absStr, pctStr, cls } = fmtChange(q.regularMarketChange, q.regularMarketChangePercent);
 
-  setText(`${pfx}-price`,        fmtPrice(price));
+  setText(`${pfx}-price`,        fmtPrice(q.regularMarketPrice));
   setText(`${pfx}-change`,       absStr);
   setText(`${pfx}-pct`,          pctStr);
-  setText(`${pfx}-open`,         fmtPrice(open));
-  setText(`${pfx}-high`,         fmtPrice(high));
-  setText(`${pfx}-low`,          fmtPrice(low));
-  setText(`${pfx}-prev`,         fmtPrice(prev));
-  setText(`${pfx}-market-state`, stateLabel(marketState));
+  setText(`${pfx}-open`,         fmtPrice(q.regularMarketOpen));
+  setText(`${pfx}-high`,         fmtPrice(q.regularMarketDayHigh));
+  setText(`${pfx}-low`,          fmtPrice(q.regularMarketDayLow));
+  setText(`${pfx}-prev`,         fmtPrice(q.regularMarketPreviousClose));
+  setText(`${pfx}-market-state`, stateLabel(q.marketState));
 
-  const absEl = document.getElementById(`${pfx}-change`);
-  const pctEl = document.getElementById(`${pfx}-pct`);
-  if (absEl) absEl.className = `change-abs ${cls}`;
-  if (pctEl) pctEl.className = `change-pct ${cls}`;
+  document.getElementById(`${pfx}-change`)?.setAttribute('class', `change-abs ${cls}`);
+  document.getElementById(`${pfx}-pct`)?.setAttribute('class',    `change-pct ${cls}`);
 }
 
 function updateMiniCard(id, price, pct) {
@@ -243,10 +253,7 @@ function updateMiniCard(id, price, pct) {
   const sign = pct >= 0 ? '+' : '';
   setText(`${id}-price`, fmtPrice(price, 0));
   const el = document.getElementById(`${id}-change`);
-  if (el) {
-    el.textContent = `${sign}${fmtPrice(pct)}%`;
-    el.className   = `mini-change ${cls}`;
-  }
+  if (el) { el.textContent = `${sign}${fmtPrice(pct)}%`; el.className = `mini-change ${cls}`; }
 }
 
 function setConnectionStatus(status) {
@@ -254,8 +261,7 @@ function setConnectionStatus(status) {
   const label = document.getElementById('conn-label');
   if (!badge || !label) return;
   badge.className   = `badge badge-${status}`;
-  label.textContent = status === 'online'  ? '실시간 연결' :
-                      status === 'offline' ? '연결 오류'   : '연결 중...';
+  label.textContent = { online: '실시간 연결', offline: '연결 오류', connecting: '연결 중...' }[status] ?? status;
 }
 
 function updateClock() {
@@ -267,48 +273,51 @@ function updateClock() {
 }
 
 /* ──────────────────────────────────────────
-   INITIAL CHART LOAD
+   CHART 초기 로드 (5분봉 히스토리)
 ────────────────────────────────────────── */
 async function loadChartData(market, symbol) {
-  const result    = await fetchChart(symbol);
+  const result    = await fetchChart(symbol, '5m', '1d');
   const loadingEl = document.getElementById(`${market.toLowerCase()}-loading`);
 
   if (result?.points?.length > 0) {
     setChartData(state.charts[market], result.points);
     if (loadingEl) loadingEl.classList.add('hidden');
-
-    const m = result.meta;
-    updateMainCard(
-      market,
-      m.regularMarketPrice,
-      m.regularMarketPrice - m.chartPreviousClose,
-      ((m.regularMarketPrice - m.chartPreviousClose) / m.chartPreviousClose) * 100,
-      m.regularMarketOpen,
-      m.regularMarketDayHigh,
-      m.regularMarketDayLow,
-      m.chartPreviousClose,
-      m.marketState,
-    );
+    const m    = result.meta;
+    const prev = m.chartPreviousClose ?? 0;
+    updateMainCard(market, {
+      regularMarketPrice:         m.regularMarketPrice,
+      regularMarketChange:        prev ? m.regularMarketPrice - prev : 0,
+      regularMarketChangePercent: prev ? ((m.regularMarketPrice - prev) / prev) * 100 : 0,
+      regularMarketOpen:          m.regularMarketOpen,
+      regularMarketDayHigh:       m.regularMarketDayHigh,
+      regularMarketDayLow:        m.regularMarketDayLow,
+      regularMarketPreviousClose: prev,
+      marketState:                m.marketState,
+    });
     return true;
   }
 
-  // Fallback to demo data
+  // 실패 시 데모 데이터
   if (loadingEl) loadingEl.classList.add('hidden');
   const demo = getDemoData()[market];
   setChartData(state.charts[market], makeDemoPoints(demo.base));
-  updateMainCard(market, demo.base, demo.change, demo.pct,
-    demo.base * 0.99, demo.base * 1.01, demo.base * 0.98,
-    demo.base - demo.change, 'CLOSED');
+  updateMainCard(market, {
+    regularMarketPrice: demo.base, regularMarketChange: demo.change,
+    regularMarketChangePercent: demo.pct,
+    regularMarketOpen: demo.base * 0.99, regularMarketDayHigh: demo.base * 1.01,
+    regularMarketDayLow: demo.base * 0.98, regularMarketPreviousClose: demo.base - demo.change,
+    marketState: 'CLOSED',
+  });
   return false;
 }
 
 /* ──────────────────────────────────────────
-   REAL-TIME UPDATE (every 2s)
+   실시간 갱신 — 주요 지수 (2초)
 ────────────────────────────────────────── */
-async function refreshQuotes() {
-  const quotes = await fetchQuotes(Object.values(CFG.symbols));
+async function refreshMainIndices() {
+  const quotes = await fetchQuotes([CFG.symbols.KOSPI, CFG.symbols.SP500]);
 
-  if (!quotes) {
+  if (!quotes.length) {
     setConnectionStatus('offline');
     if (state.usingDemo) {
       for (const [, chart] of Object.entries(state.charts)) {
@@ -326,21 +335,32 @@ async function refreshQuotes() {
 
   for (const q of quotes) {
     const market = Object.keys(CFG.symbols).find(k => CFG.symbols[k] === q.symbol);
-    if (!market) continue;
+    if (!market || !state.charts[market]) continue;
+    updateMainCard(market, q);
+    appendPoint(state.charts[market], (q.regularMarketTime ?? Math.floor(Date.now() / 1000)) * 1000, q.regularMarketPrice);
+  }
+}
 
-    const price = q.regularMarketPrice;
-    const time  = (q.regularMarketTime || Math.floor(Date.now() / 1000)) * 1000;
+/* ──────────────────────────────────────────
+   보조 지수 갱신 (30초)
+────────────────────────────────────────── */
+async function refreshMiniIndices() {
+  const quotes = await fetchQuotes([CFG.symbols.NASDAQ, CFG.symbols.KOSDAQ, CFG.symbols.NIKKEI, CFG.symbols.HSI]);
+  const idMap  = { [CFG.symbols.NASDAQ]: 'nasdaq', [CFG.symbols.KOSDAQ]: 'kosdaq',
+                   [CFG.symbols.NIKKEI]: 'nikkei', [CFG.symbols.HSI]:    'hsi' };
 
-    if (market === 'KOSPI' || market === 'SP500') {
-      updateMainCard(market, price, q.regularMarketChange, q.regularMarketChangePercent,
-        q.regularMarketOpen, q.regularMarketDayHigh, q.regularMarketDayLow,
-        q.regularMarketPreviousClose, q.marketState);
-      appendPoint(state.charts[market], time, price);
-    } else {
-      const idMap = { NASDAQ: 'nasdaq', KOSDAQ: 'kosdaq', NIKKEI: 'nikkei', HSI: 'hsi' };
-      const elId  = idMap[market];
-      if (elId) updateMiniCard(elId, price, q.regularMarketChangePercent);
-    }
+  if (!quotes.length) {
+    const demo = getDemoData();
+    updateMiniCard('nasdaq', demo.NASDAQ.base, demo.NASDAQ.pct);
+    updateMiniCard('kosdaq', demo.KOSDAQ.base, demo.KOSDAQ.pct);
+    updateMiniCard('nikkei', demo.NIKKEI.base, demo.NIKKEI.pct);
+    updateMiniCard('hsi',    demo.HSI.base,    demo.HSI.pct);
+    return;
+  }
+
+  for (const q of quotes) {
+    const elId = idMap[q.symbol];
+    if (elId) updateMiniCard(elId, q.regularMarketPrice, q.regularMarketChangePercent);
   }
 }
 
@@ -364,35 +384,13 @@ async function init() {
   state.usingDemo = !kospiOk && !spOk;
   if (state.usingDemo) {
     setConnectionStatus('offline');
-    setText('conn-label', '데모 모드 (API 우회)');
-    const badge = document.getElementById('conn-badge');
-    if (badge) badge.className = 'badge badge-offline';
+    setText('conn-label', '데모 모드');
   }
 
-  // Mini indices
-  const miniSymbols = [CFG.symbols.NASDAQ, CFG.symbols.KOSDAQ, CFG.symbols.NIKKEI, CFG.symbols.HSI];
-  const miniQuotes  = await fetchQuotes(miniSymbols);
-  if (miniQuotes) {
-    const idMap = {
-      [CFG.symbols.NASDAQ]: 'nasdaq', [CFG.symbols.KOSDAQ]: 'kosdaq',
-      [CFG.symbols.NIKKEI]: 'nikkei', [CFG.symbols.HSI]:    'hsi',
-    };
-    for (const q of miniQuotes) {
-      const elId = idMap[q.symbol];
-      if (elId) updateMiniCard(elId, q.regularMarketPrice, q.regularMarketChangePercent);
-    }
-  } else {
-    const demo = getDemoData();
-    updateMiniCard('nasdaq', demo.NASDAQ.base, demo.NASDAQ.pct);
-    updateMiniCard('kosdaq', demo.KOSDAQ.base, demo.KOSDAQ.pct);
-    updateMiniCard('nikkei', demo.NIKKEI.base, demo.NIKKEI.pct);
-    updateMiniCard('hsi',    demo.HSI.base,    demo.HSI.pct);
-  }
+  await refreshMiniIndices();
 
-  // 2-second real-time refresh
-  setInterval(refreshQuotes, CFG.updateMs);
-
-  // Full chart reload every 5 minutes
+  setInterval(refreshMainIndices, CFG.mainUpdateMs);
+  setInterval(refreshMiniIndices, CFG.miniUpdateMs);
   setInterval(async () => {
     await loadChartData('KOSPI', CFG.symbols.KOSPI);
     await loadChartData('SP500', CFG.symbols.SP500);
