@@ -406,6 +406,148 @@ body {
 }
 
 /* ========================================
+   STOCK RECOMMENDATIONS
+======================================== */
+.recommend-section {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 2rem;
+}
+
+.recommend-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.rec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.rec-subtitle {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.rec-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.rec-tab {
+  padding: 0.45rem 1.1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.rec-tab:hover { color: var(--text); border-color: var(--acc); }
+
+.rec-tab.active {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff;
+}
+
+.rec-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 900px) { .rec-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 580px) { .rec-grid { grid-template-columns: 1fr; } }
+
+.rec-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.rec-card:hover {
+  border-color: var(--acc);
+  transform: translateY(-2px);
+}
+
+.rec-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+}
+
+.rec-ticker {
+  font-size: 1rem;
+  font-weight: 700;
+  display: block;
+  letter-spacing: 0.02em;
+}
+
+.rec-name {
+  font-size: 0.73rem;
+  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+}
+
+.rec-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rec-tag {
+  font-size: 0.62rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rec-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.8rem;
+}
+
+.rec-price {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-pct {
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rec-reason {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.55;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ========================================
    MARKET HOURS
 ======================================== */
 .hours-section {
@@ -490,8 +632,5 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.stock-card {
-  animation: fade-in 0.4s ease both;
-}
-
+.stock-card { animation: fade-in 0.4s ease both; }
 #card-sp500 { animation-delay: 0.1s; }
